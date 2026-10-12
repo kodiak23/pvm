@@ -6,18 +6,72 @@ export image_keywords := "bootc,oci,linux,fedora,coreos,universalblue,homebrew,v
 export image_logo_url := "https://avatars.githubusercontent.com/u/120078124?s=200&v=4"
 export bib_image := "ghcr.io/osbuild/image-builder-cli:latest"
 
-alias build-vm := build-qcow2
-alias rebuild-vm := rebuild-qcow2
+# alias build-vm := build-qcow2
+# alias rebuild-vm := rebuild-qcow2
 # alias run-vm := run-vm-qcow2
 
-# Default output when no commands are passed
-[private]
-default:
-    @just --list
 
-##################################################
-###            Build Container Group           ###
-##################################################
+
+# --- Just Group --- #
+
+
+
+# List recipes
+[group('Just')]
+list:
+  #!/usr/bin/env bash
+    just --list
+
+# Check and format justfile syntax
+[group('Just')]
+format:
+    #!/usr/bin/env bash
+    find . -type f -iname "*.just" | while read -r file; do
+    	echo "Checking syntax: $file"
+    	just --unstable --fmt -f "$file" || { echo "Something went wrong"; exit 1; }
+    done
+    echo "Checking syntax: justfile"
+    just --unstable --fmt -f justfile || { echo "Something went wrong"; exit 1; }
+
+# Run shellcheck on a recipe
+[group('Just')]
+check-recipe recipe="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck disable=SC1083
+    recipe={{ recipe }}
+    [[ $(which shellcheck) ]] || [[ $(which shfmt) ]] || { echo "Please install 'shellcheck' and 'shfmt' and try again"; exit 1; }
+    if [[ -z $recipe ]]; then
+      [[ $(which gum) ]] || { echo "Please install 'gum' and try again"; exit 1; }
+      recipe=$(just --summary | tr " " "\n" | gum choose --limit=1 --header "Choose recipe to shellcheck:")
+    fi
+    just -s "$recipe" | sed -n '/#\!/,$p' | shfmt - | shellcheck -
+
+# Run shellcheck on all repo scripts
+[group('Just')]
+check-scripts:
+    #!/usr/bin/env bash
+    set -eou pipefail
+    [[ $(which shellcheck) ]] || { echo "Please install 'shellcheck' and try again"; exit 1; }
+    find . -iname "*.sh" -type f -exec shellcheck "{}" ';'
+
+# Clean repo
+[group('Just')]
+clean:
+    #!/usr/bin/env bash
+    set -eou pipefail
+    touch _build
+    find *_build* -exec rm -rf {} \;
+    rm -f previous.manifest.json
+    rm -f changelog.md
+    rm -f output.env
+    rm -rf output/
+
+
+
+# --- Build Container Group --- #
+
+
 
 # This Justfile recipe builds a container image using Podman.
 # The script constructs the version string using the tag and the current date.
@@ -27,7 +81,7 @@ default:
 [group('Build Container')]
 build $target_image=image_name $tag=default_tag:
     #!/usr/bin/env bash
-    set -euox pipefail
+    set -euo pipefail
 
     # If running locally, ask user for image choice
     # if [[ $- == *i* ]]; then
@@ -78,8 +132,7 @@ build $target_image=image_name $tag=default_tag:
 [group('Build Container')]
 rechunk $target_image=image_name $tag=default_tag:
     #!/usr/bin/env bash
-
-    set -xeuo pipefail
+    set -euo pipefail
 
     # TODO: pin chunkah image to hash once mature enough
     # You may run into space issues on github runners as we are making a
@@ -115,7 +168,6 @@ rechunk $target_image=image_name $tag=default_tag:
 [group('Build Container')]
 ostree-rechunk $target_image=image_name $tag=default_tag:
     #!/usr/bin/env bash
-
     set -xeuo pipefail
 
     # Use the already-built local image to avoid pulling from a remote registry
@@ -135,70 +187,6 @@ ostree-rechunk $target_image=image_name $tag=default_tag:
       --bootc \
       --rootfs /rpm-ostree \
       --output "containers-storage:[overlay@/run/host-container-storage+/run/rpm-ostree-storage]localhost/${target_image}:${tag}"
-
-##################################################
-###                 Just Group                 ###
-##################################################
-
-# Check Just Syntax
-[group('Just')]
-check:
-    #!/usr/bin/env bash
-    find . -type f -name "*.just" | while read -r file; do
-    	echo "Checking syntax: $file"
-    	just --unstable --fmt --check -f $file
-    done
-    echo "Checking syntax: Justfile"
-    just --unstable --fmt --check -f Justfile
-
-# Fix Just Syntax
-[group('Just')]
-fix:
-    #!/usr/bin/env bash
-    find . -type f -name "*.just" | while read -r file; do
-    	echo "Checking syntax: $file"
-    	just --unstable --fmt -f $file
-    done
-    echo "Checking syntax: Justfile"
-    just --unstable --fmt -f Justfile || { exit 1; }
-
-# Runs shell check on all Bash scripts
-[group('Just')]
-lint:
-    #!/usr/bin/env bash
-    set -eoux pipefail
-    # Check if shellcheck is installed
-    if ! command -v shellcheck &> /dev/null; then
-        echo "shellcheck could not be found. Please install it."
-        exit 1
-    fi
-    # Run shellcheck on all Bash scripts
-    find . -iname "*.sh" -type f -exec shellcheck "{}" ';'
-
-# Runs shfmt on all Bash scripts
-[group('Just')]
-format:
-    #!/usr/bin/env bash
-    set -eoux pipefail
-    # Check if shfmt is installed
-    if ! command -v shfmt &> /dev/null; then
-        echo "shfmt could not be found. Please install it."
-        exit 1
-    fi
-    # Run shfmt on all Bash scripts
-    find . -iname "*.sh" -type f -exec shfmt --write "{}" ';'
-
-# Clean Repo
-[group('Just')]
-clean:
-    #!/usr/bin/env bash
-    set -eoux pipefail
-    touch _build
-    find *_build* -exec rm -rf {} \;
-    rm -f previous.manifest.json
-    rm -f changelog.md
-    rm -f output.env
-    rm -rf output/
 
 ##################################################
 ###                Utility Group               ###
@@ -297,37 +285,37 @@ image_name $target_image=image_name:
 # 3. If the image is found, load it into rootful podman using podman scp.
 # 4. If the image is not found, pull it from the remote repository into reootful podman.
 
-_rootful_load_image $target_image=image_name $tag=default_tag:
-    #!/usr/bin/env bash
-    set -eoux pipefail
-
-    # Check if already running as root or under sudo
-    if [[ -n "${SUDO_USER:-}" || "${UID}" -eq "0" ]]; then
-        echo "Already root or running under sudo, no need to load image from user podman."
-        exit 0
-    fi
-
-    # Try to resolve the image tag using podman inspect
-    set +e
-    resolved_tag=$(podman inspect -t image "${target_image}:${tag}" | jq -r '.[].RepoTags.[0]')
-    return_code=$?
-    set -e
-
-    USER_IMG_ID=$(podman images --filter reference="${target_image}:${tag}" --format "'{{ '{{.ID}}' }}'")
-
-    if [[ $return_code -eq 0 ]]; then
-        # If the image is found, load it into rootful podman
-        ID=$(just sudoif podman images --filter reference="${target_image}:${tag}" --format "'{{ '{{.ID}}' }}'")
-        if [[ "$ID" != "$USER_IMG_ID" ]]; then
-            # If the image ID is not found or different from user, copy the image from user podman to root podman
-            COPYTMP=$(mktemp -p "${PWD}" -d -t _build_podman_scp.XXXXXXXXXX)
-            just sudoif TMPDIR=${COPYTMP} podman image scp ${UID}@localhost::"${target_image}:${tag}" root@localhost::"${target_image}:${tag}"
-            rm -rf "${COPYTMP}"
-        fi
-    else
-        # If the image is not found, pull it from the repository
-        just sudoif podman pull "${target_image}:${tag}"
-    fi
+# _rootful_load_image $target_image=image_name $tag=default_tag:
+#     #!/usr/bin/env bash
+#     set -eoux pipefail
+#
+#     # Check if already running as root or under sudo
+#     if [[ -n "${SUDO_USER:-}" || "${UID}" -eq "0" ]]; then
+#         echo "Already root or running under sudo, no need to load image from user podman."
+#         exit 0
+#     fi
+#
+#     # Try to resolve the image tag using podman inspect
+#     set +e
+#     resolved_tag=$(podman inspect -t image "${target_image}:${tag}" | jq -r '.[].RepoTags.[0]')
+#     return_code=$?
+#     set -e
+#
+#     USER_IMG_ID=$(podman images --filter reference="${target_image}:${tag}" --format "'{{ '{{.ID}}' }}'")
+#
+#     if [[ $return_code -eq 0 ]]; then
+#         # If the image is found, load it into rootful podman
+#         ID=$(just sudoif podman images --filter reference="${target_image}:${tag}" --format "'{{ '{{.ID}}' }}'")
+#         if [[ "$ID" != "$USER_IMG_ID" ]]; then
+#             # If the image ID is not found or different from user, copy the image from user podman to root podman
+#             COPYTMP=$(mktemp -p "${PWD}" -d -t _build_podman_scp.XXXXXXXXXX)
+#             just sudoif TMPDIR=${COPYTMP} podman image scp ${UID}@localhost::"${target_image}:${tag}" root@localhost::"${target_image}:${tag}"
+#             rm -rf "${COPYTMP}"
+#         fi
+#     else
+#         # If the image is not found, pull it from the repository
+#         just sudoif podman pull "${target_image}:${tag}"
+#     fi
 
 # Build a bootc bootable image using Bootc Image Builder (BIB)
 # Converts a container image to a bootable image
@@ -339,61 +327,61 @@ _rootful_load_image $target_image=image_name $tag=default_tag:
 #   config: The configuration file to use for the build (default: disk_config/disk.toml)
 
 # Build a QCOW2 virtual machine image
-[group('Build VM')]
-build-qcow2 $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "qcow2" "disk_config/disk.toml")
+# [group('Build VM')]
+# build-qcow2 $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "qcow2" "disk_config/disk.toml")
 
 # Build a RAW virtual machine image
-[group('Build Virtal Machine Image')]
-build-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "raw" "disk_config/disk.toml")
+# [group('Build Virtal Machine Image')]
+# build-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "raw" "disk_config/disk.toml")
 
 # Build an ISO virtual machine image
-[group('Build ISO')]
-build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso.toml")
+# [group('Build ISO')]
+# build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso.toml")
 
 # Rebuild a QCOW2 virtual machine image
-[group('Build VM')]
-rebuild-qcow2 $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "qcow2" "disk_config/disk.toml")
+# [group('Build VM')]
+# rebuild-qcow2 $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "qcow2" "disk_config/disk.toml")
 
 # Rebuild a RAW virtual machine image
-[group('Build Virtal Machine Image')]
-rebuild-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "raw" "disk_config/disk.toml")
+# [group('Build Virtal Machine Image')]
+# rebuild-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "raw" "disk_config/disk.toml")
 
 # Rebuild an ISO virtual machine image
-[group('Build ISO')]
-rebuild-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "iso" "disk_config/iso.toml")
+# [group('Build ISO')]
+# rebuild-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "iso" "disk_config/iso.toml")
 
 # Example: just _build-bib localhost/fedora latest qcow2 disk_config/disk.toml
-_build-bib $target_image $tag $type $config: (_rootful_load_image target_image tag)
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    args="--type ${type} "
-    args+="--use-librepo=True "
-    args+="--rootfs=btrfs"
-
-    BUILDTMP=$(mktemp -p "${PWD}" -d -t _build-bib.XXXXXXXXXX)
-
-    sudo podman run \
-      --rm \
-      -it \
-      --privileged \
-      --pull=newer \
-      --net=host \
-      --security-opt label=type:unconfined_t \
-      -v $(pwd)/${config}:/config.toml:ro \
-      -v $BUILDTMP:/output \
-      -v /var/lib/containers/storage:/var/lib/containers/storage \
-      "${bib_image}" \
-      ${args} \
-      "${target_image}:${tag}"
-
-    mkdir -p output
-    sudo mv -f $BUILDTMP/* output/
-    sudo rmdir $BUILDTMP
-    sudo chown -R $USER:$USER output/
+# _build-bib $target_image $tag $type $config: (_rootful_load_image target_image tag)
+#     #!/usr/bin/env bash
+#     set -euo pipefail
+#
+#     args="--type ${type} "
+#     args+="--use-librepo=True "
+#     args+="--rootfs=btrfs"
+#
+#     BUILDTMP=$(mktemp -p "${PWD}" -d -t _build-bib.XXXXXXXXXX)
+#
+#     sudo podman run \
+#       --rm \
+#       -it \
+#       --privileged \
+#       --pull=newer \
+#       --net=host \
+#       --security-opt label=type:unconfined_t \
+#       -v $(pwd)/${config}:/config.toml:ro \
+#       -v $BUILDTMP:/output \
+#       -v /var/lib/containers/storage:/var/lib/containers/storage \
+#       "${bib_image}" \
+#       ${args} \
+#       "${target_image}:${tag}"
+#
+#     mkdir -p output
+#     sudo mv -f $BUILDTMP/* output/
+#     sudo rmdir $BUILDTMP
+#     sudo chown -R $USER:$USER output/
 
 # Example: just _rebuild-bib localhost/fedora latest qcow2 disk_config/disk.toml
-_rebuild-bib $target_image $tag $type $config: (build target_image tag) && (_build-bib target_image tag type config)
+# _rebuild-bib $target_image $tag $type $config: (build target_image tag) && (_build-bib target_image tag type config)
 
 # Run a virtual machine with the specified image type and configuration
 # _run-vm $target_image $tag $type $config:
