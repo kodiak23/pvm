@@ -6,14 +6,13 @@ export image_keywords := "bootc,oci,linux,fedora,coreos,universalblue,homebrew,v
 export image_logo_url := "https://avatars.githubusercontent.com/u/120078124?s=200&v=4"
 export bib_image := "ghcr.io/osbuild/image-builder-cli:latest"
 
-# alias build-vm := build-qcow2
-# alias rebuild-vm := rebuild-qcow2
-# alias run-vm := run-vm-qcow2
-
-
+#
+# sudo qm clone 2004 121 --full --name kos-base && qm set 121 --cicustom "user=cephfs:snippets/base-config.ign" && qm start 121
+#
 
 # --- Just Group --- #
 
+###   ------   Functions   ------   ###
 
 
 # List recipes
@@ -188,9 +187,11 @@ ostree-rechunk $target_image=image_name $tag=default_tag:
       --rootfs /rpm-ostree \
       --output "containers-storage:[overlay@/run/host-container-storage+/run/rpm-ostree-storage]localhost/${target_image}:${tag}"
 
-##################################################
-###                Utility Group               ###
-##################################################
+
+
+
+
+### --- Utility Functions --- ###
 
 # Sudo Clean Repo
 [group('Utility')]
