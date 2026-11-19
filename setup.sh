@@ -1,50 +1,18 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2016
-
-# run this script from your proxmox host using the following:
-# bash -c "$(curl -fsSL https://raw.githubusercontent.com/kodiak23/pvm/refs/heads/main/pvm-init.sh)"
-
 set -eo pipefail
 
-###   ------   Main Functions   ------   ###
+###   ------   Instructions   ------   ###
+# run this script using the following command:
+# bash -c "$(curl -fsSL https://raw.githubusercontent.com/kodiak23/pvm/refs/heads/main/pvm-init.sh)"
 
-_main() {
-  _prerequisites
-  _extras
-  _install
-  _cleanup
-}
+###   ------   Main Function   ------   ###
 
-_prerequisites() {
-  _define_variables
-  _pve_check
-  _root_check
-  _snippets_check
-  _homebrew_check
-  _package_check
-}
-
-_extras() {
-  _setup_pveadmin_user
-  _install_homebrew
-}
-
-_install() {
-  _setup_pvm
-}
-
-_cleanup() {
-  _update_homebrew
-  _update_proxmox
-  _reboot
-}
-
-###   ------   Prerequisite Functions   ------   ###
-
-_define_variables() {
+main() {
+  # define variables
   brew_installed=false
   brew_user=""
-  package_list=(
+  required_packages=(
     "git"
     "gum"
     "just"
@@ -52,54 +20,72 @@ _define_variables() {
     "sd"
   )
   pvm_repo="https://github.com/kodiak23/pvm"
-  # user_id="$EUID"
-  # user_1000=$(id -un 1000; echo $?)
-  # as_user_1000=$([[ "$EUID" == "1000" ]]; echo $?)
+
+  # run prerequisite functions
+  _pve_check
+  _root_check
+  _snippets_check
+  _homebrew_check
+  _package_check
+
+  # run extra functions
+  _setup_pveadmin_user
+  _install_homebrew
+
+  # run primary functions
+  _setup_pvm
+
+  # run cleanup functions
+  _update_homebrew
+  _update_proxmox
+  _reboot
 }
 
-__pve_check() {
+###   ------   Prerequisite Functions   ------   ###
+
+_pve_check() {
   # Exit script if not running on proxmox
   [[ -d /etc/pve ]] || {
-    echo "This script is only designed to be run on Proxmox"
+    echo "This script is only designed to run on Proxmox. Exiting..."
     exit 1
   }
 }
 
-__root_check() {
+_root_check() {
   # Exit script if not running as root
   [[ "$EUID" ]] || {
-    echo "This script is only designed to be run as root on the Proxmox node"
+    echo "This script must be run as root. Exiting..."
     exit 1
   }
 }
 
-__snippets_check() {
+_snippets_check() {
   # Exit script if snippets directory is not configured
   grep -q "snippets" /etc/pve/storage.cfg || {
-    echo "Your Proxmox node needs to be configured with a snippets storage directory before running this script"
+    echo "Your Proxmox node needs to be configured with a snippets storage directory before running this script. Exiting..."
     exit 1
   }
 }
 
-__homebrew_check() {
+_homebrew_check() {
   # Check if homebrew is installed
-  [[ -e /home/linuxbrew/.linuxbrew/bin/brew ]] && {
+  if [[ -e /home/linuxbrew/.linuxbrew/bin/brew ]]; then
     brew_installed=true
     brew_user="$(stat -f '%u' /home/linuxbrew/.linuxbrew)"
-  }
+  fi
 }
 
-__package_check() {
-  # Install packages required for this script
-
+_required_package_check() {
   local not_installed=()
 
-  for package in "${package_list[@]}"; do
+  # Check for packages required for this script
+  for package in "${required_packages[@]}"; do
     if [[ ! $(command -v "$package") ]]; then
       not_installed+=("$package")
     fi
   done
 
+  # Install missing packages
   if [[ "${#not_installed[@]}" != 0 ]]; then
     echo "Installing packages required for PVM"
     if [[ $brew_installed ]]; then
@@ -115,9 +101,9 @@ __package_check() {
   fi
 }
 
-###   ------   Extra Functions   ------   ###
+###   ------   Optional Functions   ------   ###
 
-__setup_pveadmin_user() {
+_setup_pveadmin_user() {
   # Add new PVEAdmin user
 
   if gum confirm "Would you like to set up a non-root PVEAdmin user?"; then
@@ -139,7 +125,7 @@ __setup_pveadmin_user() {
   fi
 }
 
-__install_homebrew() {
+_install_homebrew() {
   # Create the home directory for Homebrew with user permissions
   [[ -d /home/linuxbrew/.linuxbrew ]] || {
     mkdir -p /home/linuxbrew/.linuxbrew/
@@ -177,9 +163,9 @@ __install_homebrew() {
 
 }
 
-###   ------   Install Functions   ------   ###
+###   ------   Primary Functions   ------   ###
 
-__setup_pvm() {
+_setup_pvm() {
   # Clone PVM repo to snippets directory
   local snippetsdir=""
   local pvmdir="$snippetsdir/pvm"
@@ -222,4 +208,4 @@ _reboot() {
 }
 
 ###   ------   Run Main   ------   ###
-_main
+main
